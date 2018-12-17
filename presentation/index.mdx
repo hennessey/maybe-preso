@@ -1,0 +1,363 @@
+import { Cite } from "spectacle";
+import { DarkSlide, CodeSlide } from "./slides";
+import RegularComponent from "./regular-component";
+
+# Guarding your application from run-time null reference errors
+
+---
+
+### We devote way too much code guarding against nulls
+
+<!--
+  Null reference (or null pointer) expections, a.k.a. the
+  'Billion Dollar Mistake'. We're devoting far too much time
+  handling or guarding against null or undefined values in
+  our Javscript code.
+
+  citation: https://www.infoq.com/presentations/Null-References-The-Billion-Dollar-Mistake-Tony-Hoare
+-->
+
+---
+
+### `if..else` statements
+
+```javascript
+let getName = function(person) {
+  if (person.name) {
+    return person.name;
+  } else {
+    return undefined;
+  }
+};
+
+getName({ name: "John" }); // -> 'John'
+getName(); // -> undefined
+```
+
+<!---
+  I'm sure we're all familiar with code like this...
+-->
+
+---
+
+### 'and' `&&` expression short-circuiting
+
+```javascript
+let getName = function(person) {
+  return person && person.name;
+};
+
+getName({ name: "John" }); // -> 'John'
+getName(); // -> undefined
+```
+
+<!---
+  ...or this
+-->
+
+---
+
+### Ternary expressions
+
+```javascript
+let printName = function(name) {
+  name ? console.log(name) : undefined;
+};
+
+printName("John"); // -> 'John'
+printName(); // -> undefined
+```
+
+<!--
+  ...or event like this
+-->
+
+---
+
+### What if we could write a data structure to handle null checking for us?
+
+<!--
+  Other than the extra code we have to write to accomodate
+  for null/undefined values in our model, we're often times
+  just kicking the proverbial null-can down the road, or in
+  this case to the next client of our nullable value.
+
+  This, of course, should probably be enforced by some sort
+  of anti-corruption layer that enforces the invariants of
+  the domain you're modeling. But in large applications
+  this might not be as obvious or foolproof
+-->
+
+<!--
+  Since we're dealing with javascript, we can enforce that
+  null cases are always handled, but we can ensure that if
+  they're not we are notified as close to app start as possible
+-->
+
+---
+
+### What should our api look like?
+
+<!--
+  The javascript spec already provides a structure that does
+  something very similiar -- Promises
+-->
+
+---
+
+export default CodeSlide;
+
+```javascript
+const maybeName = maybePromise(someObject.name)
+  .then(toUpperCase)
+  .then(logToConsole)
+  .catch(() => {
+    throw new Error("no name");
+  });
+```
+
+<!--
+  A javscript promise wraps a value and accepts two
+  callbacks which allow us to specify what should happen once
+  that value is fulfilled or rejected. If it's fulfilled,
+  the assocated 'then' handler is called with that resolved
+  value. If it's rejected, the 'catch' handlered is called.
+
+  This is pretty close, but since the intention for promises
+  was as a way act as a proxy from async values, the client
+  api is a bit weird.
+-->
+
+---
+
+### Our very own custom data structure
+
+<!--
+  What if we could make our own datastructor with the same
+  semantics as Promises, but instead are meant to be
+  evaluated synchronously?
+-->
+
+---
+
+export default CodeSlide;
+
+```javascript
+function getName(person) {
+  return new Maybe(person.name)
+    .map((person) => person.name));
+}
+
+class Maybe {
+  constructor(val) {
+    this.val = val
+  }
+  map(fn) {
+    if (!this.val) {
+      return maybe(null)
+    } else {
+      return maybe(fn(val))
+    }
+  }
+}
+```
+
+<!--
+  In this snippet, we have a structure that does just that:
+  wraps a nullable value and provides us an api to operate
+  on it in a such a way that guarantees that we never have
+  to worry about whether or not the initial expression/value
+  was null.
+
+  In this example, we can think of 'map' as our version of
+  'Promise.prototype.then', this is a method that only
+  invokes it's provided callback when the Promise is
+  fulfilled. In our case, map only invokes it's callback
+  when the wrapped value is not null.
+-->
+
+---
+
+export default CodeSlide;
+
+```javascript
+const maybeHelloWorld = new Maybe("Hello")
+  .map(str => str.toUpper())
+  .map(str => null)
+  .map(str => str.concat(" ")) // Never called!
+  .map(str => str.concat("WORLD!")); // Never called, either!
+```
+
+<!--
+  One cool thing about this is that if you
+  chain together multiple maps, any operation in the
+  sequence after a null value is never evaluated and skipped
+  over entirely! The shortcircuiting is built into the data
+  structure itself.
+-->
+
+---
+
+export default CodeSlide;
+
+```javascript
+// safeGetName :: object -> Maybe(string)
+const safeGetName = person => new Maybe(person.name);
+// toUpper :: Maybe(string) -> Maybe(string)
+const toUpper = maybeName => maybeName.map(name => name.toUpper());
+// safeNameToUpper :: object -> Maybe(string)
+const safeNameToUpper = person => toUpper(safeGetName(person));
+```
+
+<!--
+  One of the benefits of our structure is that it composes
+  really nicely. Once we have our wrapped value we can
+  safely compose it with other functions that deal with our
+  wrapped Maybe values without any additional `null`
+  checking. If any value in the chain resolves to null, it
+  propogates up automatically.
+
+  The issue, as you can here,
+  is that all of the functions in the composition chain.
+  need to know how to deal with our maybe function. What if
+  we wanted to combine to functions that return maybe?
+-->
+
+---
+
+export default CodeSlide;
+
+```javascript
+// safeGetName :: object -> Maybe(string)
+const safeGetName = person => new Maybe(person.name);
+// safeToUpper :: string -> Maybe(string)
+const safeToUpper = string => new Maybe(string.toUpper());
+// safeNameToUpper :: object -> Maybe(Maybe(string))
+const safeNameToUpper = person =>
+  safeGetName(person).map(name => safeToUpper(name));
+
+// safeNameToUpper === Maybe(Maybe(string))
+```
+
+<!--
+Yuck. Since we're dealing with two different functions that
+make our values safe, it becomes quite difficult to deal
+with them. Having to manually string together these values
+is tedious and leads to a lot of the same issues we were
+trying to solve in the first place: Wasting precious
+keystrokes to handle null values. We can't expect developers
+to peel back the layers of that onion manually.
+-->
+
+---
+
+### Chaining our Maybes
+
+<!--
+Let's add a method to our data structure that can handle
+this unwrapping for us!
+-->
+
+---
+
+export default CodeSlide;
+
+```javascript
+class Maybe {
+  //...
+  join() {
+    return val ? val : new Maybe(null);
+  }
+
+  chain(fn) {
+    if (!val) {
+      return new Maybe(null);
+    } else {
+      return fn(val).join();
+    }
+  }
+}
+```
+
+<!--
+  This is a lot of un-wrap(lol) but let's walk through,
+  line-by-line what's happening here. We've got a brand new
+  method called `chain` here that is basically just `map`
+  with a `join` tacked on to the end to do the unwrapping
+  for us.
+-->
+
+---
+
+```javascript
+// safeGetName :: object -> Maybe(string)
+const safeGetName = person => new Maybe(person.name);
+// safeToUpper :: string -> Maybe(string)
+const safeToUpper = string => new Maybe(string.toUpper());
+
+// safeNameToUpper :: object -> Maybe(string)
+const safeNameToUpper = person =>
+  safeGetName(person).chain(name => safeToUpper(name));
+```
+
+<!--
+Now we don't need to worry about unwrapping all our wrapped
+values each time we want to compose our wrapped values!
+Note that `then` in Promise.prototype does this smooshing
+for us automagically
+-->
+
+---
+
+```
+function invariant(exp, msg) {
+if (!expression) throw new Error(msg);
+}
+```
+
+---
+
+## <RegularComponent />
+
+###### Typography
+
+# Heading 1
+
+## Heading 2
+
+### Heading 3
+
+#### Heading 4
+
+##### Heading 5
+
+###### Heading 6
+
+Standard Text
+
+---
+
+###### Standard List
+
+- Item 1
+- Item 2
+- Item 3
+- Item 4
+
+---
+
+> Example Quote
+
+<Cite>Author</Cite>
+
+---
+
+export default CodeSlide;
+
+```javascript
+class SuperCoolComponent extends React.Component {
+  render() {
+    return <p>code slide works in markdown too whaaaaat</p>;
+  }
+}
+```
