@@ -201,11 +201,8 @@ const maybeHelloWorld = new Maybe("Hello")
 export default CodeSlide;
 
 ```javascript
-// safeGetName :: object -> Maybe(string)
 const safeGetName = person => new Maybe(person.name);
-// toUpper :: Maybe(string) -> Maybe(string)
 const toUpper = maybeName => maybeName.map(name => name.toUpper());
-// safeNameToUpper :: object -> Maybe(string)
 const safeNameToUpper = person => toUpper(safeGetName(person));
 ```
 
